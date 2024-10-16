@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -6,12 +8,74 @@ import 'package:vehicle_app/screens/book_now.dart';
 import 'package:vehicle_app/screens/menue_screen.dart';
 import 'package:vehicle_app/widgets/navbar_roots.dart';
 
-class HomeScreen extends StatelessWidget {
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'dart:io';
+
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   final List<String> carouselImages = [
     'images/aston.jpg',
     'images/benz.jpg',
     'images/bmw.jpg',
   ];
+
+  String predictedClass = '';
+  double confidence = 0.0;
+  List<String> recommendedParts = [];
+  String errorMessage = '';
+
+  Future<void> _pickImageAndUpload(BuildContext context) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.camera);
+
+    if (pickedFile != null) {
+      File imageFile = File(pickedFile.path);
+
+      var uri =
+          Uri.parse('https://1fc6-112-134-188-121.ngrok-free.app/classify');
+      var request = http.MultipartRequest('POST', uri)
+        ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+
+      try {
+        var response = await request.send();
+
+        if (response.statusCode == 200) {
+          var responseBody = await response.stream.bytesToString();
+          var jsonResponse = jsonDecode(responseBody);
+
+          setState(() {
+            predictedClass = jsonResponse['predicted_class'];
+            confidence = jsonResponse['confidence'];
+            recommendedParts =
+                List<String>.from(jsonResponse['recommended_parts']);
+            errorMessage = ''; // Clear any previous error messages
+          });
+        } else {
+          setState(() {
+            errorMessage = 'Failed to classify image. Please try again.';
+            predictedClass = '';
+            recommendedParts = [];
+          });
+        }
+      } catch (e) {
+        setState(() {
+          errorMessage =
+              'Error connecting to server. Please check your connection.';
+          predictedClass = '';
+          recommendedParts = [];
+        });
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No image selected'),
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -208,7 +272,7 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Text(
-                    "Click Scan Button Identify the Vehcicle Model",
+                    "Click Scan Button Identify the Vehicle Model",
                     style: TextStyle(
                       fontSize: 25,
                       fontWeight: FontWeight.w600,
@@ -220,7 +284,7 @@ class HomeScreen extends StatelessWidget {
                   SizedBox(height: 35),
                   ElevatedButton.icon(
                     onPressed: () {
-                      // Add functionality for scan button here
+                      _pickImageAndUpload(context);
                     },
                     icon: Icon(Icons.qr_code_scanner),
                     label: Text("Scan"),
@@ -232,6 +296,42 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  SizedBox(height: 20),
+                  // Display the response data if available, otherwise show an error message
+                  if (predictedClass.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Predicted Class: $predictedClass",
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          "Confidence: ${confidence.toStringAsFixed(1)}%",
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          "Recommended Parts:",
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        ...recommendedParts.map((part) => Text(
+                              "- $part",
+                              style: TextStyle(fontSize: 18),
+                            )),
+                      ],
+                    )
+                  else if (errorMessage.isNotEmpty)
+                    Text(
+                      errorMessage,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
                 ],
               ),
             ),
